@@ -74,14 +74,12 @@ async fn create_run(client: &reqwest::Client) -> String {
 }
 
 async fn check_run_status(run_id: &str, client: &reqwest::Client) -> String {
-    let url = format!(
-        "https://api.openai.com/v1/threads/{}/runs/{}",
-        env::var("OPENAI_THREAD_ID").unwrap(),
-        run_id
-    );
-    println!("Checking status at: {}", url);
     client
-        .get(url)
+        .get(format!(
+            "https://api.openai.com/v1/threads/{}/runs/{}",
+            env::var("OPENAI_THREAD_ID").unwrap(),
+            run_id
+        ))
         .header(
             "Authorization",
             format!("Bearer {}", env::var("OPENAI_API_KEY").unwrap()),
@@ -104,13 +102,11 @@ async fn get_response(msg: &Message) -> String {
     add_message_to_thread(&msg, &client).await;
 
     let run_id = create_run(&client).await;
-    println!("Run ID: {}", run_id);
 
     let terminal_statuses = ["completed", "expired", "failed", "cancelled", "incomplete"];
 
     for _ in 0..20 {
         let status = check_run_status(&run_id, &client).await;
-        println!("Status: {}", status);
         if terminal_statuses.contains(&status.as_str()) {
             break;
         }
