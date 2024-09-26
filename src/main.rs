@@ -1,5 +1,7 @@
 use std::env;
 
+use postgrest::Postgrest;
+
 use serenity::all::User;
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -8,42 +10,48 @@ use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use serenity::utils::MessageBuilder;
 
-mod openai_api;
-use openai_api::*;
+mod database;
+mod openai;
 
 fn should_reply(msg: &Message, current_user: &User) -> bool {
-	let is_bot = msg.author.bot;
-	let content = msg.content.to_ascii_lowercase();
-	let own_name = current_user.name.to_ascii_lowercase();
-	let contains_my_name = content.contains(&own_name);
-	let own_id = current_user.id;
-	let mentions_me = msg.mentions_user(current_user);
-	let replies_to_me = msg
-		.referenced_message
-		.clone()
-		.is_some_and(|m| m.author.id == own_id);
+    let is_bot = msg.author.bot;
+    let content = msg.content.to_ascii_lowercase();
+    let own_name = current_user.name.to_ascii_lowercase();
+    let contains_my_name = content.contains(&own_name);
+    let own_id = current_user.id;
+    let mentions_me = msg.mentions_user(current_user);
+    let replies_to_me = msg
+        .referenced_message
+        .clone()
+        .is_some_and(|m| m.author.id == own_id);
 
-	!is_bot && (contains_my_name || mentions_me || replies_to_me)
+    !is_bot && (contains_my_name || mentions_me || replies_to_me)
 }
 
-async fn get_response(msg: &Message) -> String {
+async fn create_thread(channel_id: &str, database: &Postgrest) -> String {
+    let thread_id = openai::create_thread(&reqwest::Client::new()).await;
+    database::set_thread(&thread_id, channel_id, database).await;
+    thread_id
+}
+
+async fn get_response(msg: &Message, thread_id: &str) -> String {
     let client = reqwest::Client::new();
 
-    add_message_to_thread(msg, &client).await;
+    openai::add_message_to_thread(msg, thread_id, &client).await;
 
-    let run_id = create_run(&msg.author, &client).await;
+    let run_id = openai::create_run(&msg.author, thread_id, &client).await;
 
     let terminal_statuses = ["completed", "expired", "failed", "cancelled", "incomplete"];
 
     for i in 0..10 {
-        let status = check_run_status(&run_id, &client).await;
+        let status = openai::check_run_status(&run_id, thread_id, &client).await;
         if terminal_statuses.contains(&status.as_str()) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_secs(i + 3));
     }
 
-    get_thread_run_result(&run_id, &client).await
+    openai::get_thread_run_result(&run_id, thread_id, &client).await
 }
 
 async fn send_response(response: &str, channel_id: &ChannelId, context: &Context) {
@@ -63,9 +71,30 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
+        println!("Message received: {}", msg.content);
         if should_reply(&msg, &context.cache.current_user()) {
-            let response = get_response(&msg).await;
+            println!("Should reply");
+
+            let database = database::initialize_database();
+            let thread_id =
+                database::get_thread_id_for_channel(&msg.channel_id.to_string(), &database).await;
+
+            let thread_id = match thread_id {
+                Some(id) => {
+                    println!("Thread exists in DB");
+                    id
+                }
+                None => {
+                    println!("Thread does not exist in DB");
+                    create_thread(&msg.channel_id.to_string(), &database).await
+                }
+            };
+            println!("Thread ID: {}", thread_id);
+
+            let response = get_response(&msg, &thread_id).await;
             send_response(&response, &msg.channel_id, &context).await;
+        } else {
+            println!("Should not reply");
         }
     }
 
@@ -77,11 +106,8 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
-    env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY not set!");
-    env::var("OPENAI_ASSISTANT_ID").expect("OPENAI_ASSISTANT_ID not set!");
-    // let openai_thread_id = create_thread(&reqwest::Client::new()).await;
-    // env::set_var("OPENAI_THREAD_ID", openai_thread_id);
-	env::var("OPENAI_THREAD_ID").expect("OPENAI_THREAD_ID not set!");
+    openai::verify_env_vars();
+    database::verify_env_vars();
 
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES

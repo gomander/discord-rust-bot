@@ -24,8 +24,14 @@ struct ThreadMessageContentText {
     value: String,
 }
 
+pub fn verify_env_vars() {
+    env::var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
+    env::var("OPENAI_ASSISTANT_ID").expect("OPENAI_ASSISTANT_ID must be set");
+    println!("OpenAI environment variables are set");
+}
+
 pub async fn create_thread(client: &reqwest::Client) -> String {
-    client
+    let thread_id = client
         .post("https://api.openai.com/v1/threads")
         .header(
             "Authorization",
@@ -40,19 +46,25 @@ pub async fn create_thread(client: &reqwest::Client) -> String {
         .unwrap()["id"]
         .as_str()
         .unwrap()
-        .to_string()
+        .to_string();
+    println!("Created thread with ID: {}", thread_id);
+    thread_id
 }
 
-pub async fn add_message_to_thread(msg: &Message, client: &reqwest::Client) {
+pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &reqwest::Client) {
     let user_name = msg
         .author
         .global_name
         .as_deref()
         .unwrap_or(&msg.author.name);
-    client
+    println!(
+        "Adding message to thread {}: {} ({}): \"{}\"",
+        thread_id, user_name, msg.author.id, msg.content
+    );
+    let result = client
         .post(format!(
             "https://api.openai.com/v1/threads/{}/messages",
-            env::var("OPENAI_THREAD_ID").unwrap()
+            thread_id
         ))
         .header(
             "Authorization",
@@ -69,19 +81,21 @@ pub async fn add_message_to_thread(msg: &Message, client: &reqwest::Client) {
             "role": "user",
         }))
         .send()
-        .await
-        .unwrap();
+        .await;
+    if let Err(e) = result {
+        println!("Error adding message to thread: {:?}", e);
+    } else {
+        println!("Added message to thread");
+    }
 }
 
-pub async fn create_run(user: &User, client: &reqwest::Client) -> String {
-    let user_name = user
-        .global_name
-        .as_deref()
-        .unwrap_or(&user.name);
+pub async fn create_run(user: &User, thread_id: &str, client: &reqwest::Client) -> String {
+    let user_name = user.global_name.as_deref().unwrap_or(&user.name);
+    println!("Creating run for user: {} ({})", user_name, user.id);
     client
         .post(format!(
             "https://api.openai.com/v1/threads/{}/runs",
-            env::var("OPENAI_THREAD_ID").unwrap()
+            thread_id
         ))
         .header(
             "Authorization",
@@ -107,12 +121,11 @@ pub async fn create_run(user: &User, client: &reqwest::Client) -> String {
         .to_string()
 }
 
-pub async fn check_run_status(run_id: &str, client: &reqwest::Client) -> String {
+pub async fn check_run_status(run_id: &str, thread_id: &str, client: &reqwest::Client) -> String {
     client
         .get(format!(
             "https://api.openai.com/v1/threads/{}/runs/{}",
-            env::var("OPENAI_THREAD_ID").unwrap(),
-            run_id
+            thread_id, run_id
         ))
         .header(
             "Authorization",
@@ -130,12 +143,15 @@ pub async fn check_run_status(run_id: &str, client: &reqwest::Client) -> String 
         .to_string()
 }
 
-pub async fn get_thread_run_result(run_id: &str, client: &reqwest::Client) -> String {
+pub async fn get_thread_run_result(
+    run_id: &str,
+    thread_id: &str,
+    client: &reqwest::Client,
+) -> String {
     let response: ThreadMessagesResponse = client
         .get(format!(
             "https://api.openai.com/v1/threads/{}/messages?run_id={}",
-            env::var("OPENAI_THREAD_ID").unwrap(),
-            run_id
+            thread_id, run_id
         ))
         .header(
             "Authorization",
