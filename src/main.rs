@@ -70,30 +70,19 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
-        println!("Message received: {:?}", msg.content);
         if should_reply(&msg, &context.cache.current_user()) {
-            println!("Should reply");
-
             let database = database::initialize_database();
             let thread_id =
                 database::get_thread_id_for_channel(&msg.channel_id.to_string(), &database).await;
 
             let thread_id = match thread_id {
-                Some(id) => {
-                    println!("Thread exists in DB");
-                    id
-                }
-                None => {
-                    println!("Thread does not exist in DB");
-                    create_thread(&msg.channel_id.to_string(), &database).await
-                }
+                Some(id) => id,
+                None => create_thread(&msg.channel_id.to_string(), &database).await,
             };
 
             let response = get_response(&msg, &thread_id).await;
             send_response(&response, &msg.channel_id, &context).await;
-        } else {
-            println!("Should not reply");
-        }
+        };
     }
 
     async fn ready(&self, _: Context, ready: Ready) {
