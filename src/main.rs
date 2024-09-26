@@ -22,7 +22,7 @@ fn should_reply(msg: &Message, current_user: &User) -> bool {
         .referenced_message
         .clone()
         .is_some_and(|m| m.author.id == own_id);
-    let is_dm = msg.guild_id == None;
+    let is_dm = msg.guild_id.is_none();
 
     !is_bot && (contains_my_name || mentions_me || replies_to_me || is_dm)
 }
@@ -72,13 +72,18 @@ impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
         if should_reply(&msg, &context.cache.current_user()) {
             let database = database::initialize_database();
+
             let thread_id =
                 database::get_thread_id_for_channel(&msg.channel_id.to_string(), &database).await;
-
             let thread_id = match thread_id {
                 Some(id) => id,
                 None => create_thread(&msg.channel_id.to_string(), &database).await,
             };
+
+            msg.channel_id
+                .broadcast_typing(&context.http)
+                .await
+                .unwrap();
 
             let response = get_response(&msg, &thread_id).await;
             send_response(&response, &msg.channel_id, &context).await;

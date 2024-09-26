@@ -41,13 +41,9 @@ pub async fn get_thread_id_for_channel(channel_id: &str, client: &Postgrest) -> 
             }
             let parsed: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(&data);
             match parsed {
-                Ok(value) => {
-                    if let Some(thread_id) = value[0]["thread_id"].as_str() {
-                        Some(thread_id.to_string())
-                    } else {
-                        None
-                    }
-                }
+                Ok(value) => value[0]["thread_id"]
+                    .as_str()
+                    .map(|thread_id| thread_id.to_string()),
                 Err(e) => {
                     println!("Error parsing thread ID for channel: {e:?}");
                     None
