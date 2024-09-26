@@ -20,7 +20,11 @@ Inactive threads are kept for 60 days before being deleted. If you don't want th
 
 WOW getting the Supabase integration working was harder than it needed to be. The documentation is bad. It's so hard to find exactly the article I need, and odds are it doesn't have complete information anyway. I've been forced to disable RLS on my table because I couldn't write to it otherwise, even using my service key. Whatever, the credentials are only going to be stored on the bot server anyway.
 
+A Supabase dev responded to a question about this a year ago saying that it's ideal to have RLS enabled but with the policy `revoke all on schema public from anon; revoke all on schema public from authenticated;`. I should investigate that.
+
 ## Other things
+
+Here's the NodeJS project that inspired the approach of using OpenAI assistants for memory: https://github.com/VoloBuilds/openai-assistants-discord-bot. There's a PR open with some cool feature additions that I may be able to port.
 
 I wanna add attachment parsing, including reading text-based files, listening to audio, and vision support.
 
