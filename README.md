@@ -4,7 +4,7 @@ This is a simple work-in-progress Discord bot that responds to messages. I'm ver
 
 ## Setup
 
-You'll need an OpenAI API key, an OpenAI assistant, and an OpenAI thread, as well as a Discord bot token.
+You'll need a Discord app, an OpenAI API key and an assistant, and a Supabase database.
 
 ### Discord
 
@@ -14,8 +14,14 @@ Create an app and add it to a server. Make sure it has all intents enabled and i
 
 Create your API key and assistant through the dashboard, then create a thread by hitting the endpoint manually. This is something I intend to automate away eventually.
 
+### Supabase
+
+Create a table in Supabase called "threads_to_channels" with the primary key column being "thread_id" and another column "channel_id". Both should be unique and text type.
+
+### .env file
+
+Create a `.env` file using the template provided.
+
 ## Running the bot
 
-```sh
-DISCORD_TOKEN=AAAAA OPENAI_API_KEY=sk-proj-AAAAA OPENAI_ASSISTANT_ID=asst_AAAAA OPENAI_THREAD_ID=thread_AAAAA cargo run
-```
+`cargo run`
