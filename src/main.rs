@@ -1,5 +1,3 @@
-use std::env;
-
 use postgrest::Postgrest;
 
 use serenity::all::User;
@@ -24,8 +22,9 @@ fn should_reply(msg: &Message, current_user: &User) -> bool {
         .referenced_message
         .clone()
         .is_some_and(|m| m.author.id == own_id);
+    let is_dm = msg.guild_id == None;
 
-    !is_bot && (contains_my_name || mentions_me || replies_to_me)
+    !is_bot && (contains_my_name || mentions_me || replies_to_me || is_dm)
 }
 
 async fn create_thread(channel_id: &str, database: &Postgrest) -> String {
@@ -60,8 +59,8 @@ async fn send_response(response: &str, channel_id: &ChannelId, context: &Context
             .push(chunk.iter().collect::<String>())
             .build();
 
-        if let Err(why) = channel_id.say(&context.http, &message).await {
-            println!("Error sending message: {why:?}");
+        if let Err(e) = channel_id.say(&context.http, &message).await {
+            println!("Error sending message: {e:?}");
         }
     }
 }
@@ -71,7 +70,7 @@ struct Handler;
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
-        println!("Message received: {}", msg.content);
+        println!("Message received: {:?}", msg.content);
         if should_reply(&msg, &context.cache.current_user()) {
             println!("Should reply");
 
@@ -89,7 +88,6 @@ impl EventHandler for Handler {
                     create_thread(&msg.channel_id.to_string(), &database).await
                 }
             };
-            println!("Thread ID: {}", thread_id);
 
             let response = get_response(&msg, &thread_id).await;
             send_response(&response, &msg.channel_id, &context).await;
@@ -105,7 +103,8 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
-    let token = env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
+    dotenv::dotenv().ok();
+    let token = std::env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
     openai::verify_env_vars();
     database::verify_env_vars();
 
@@ -117,7 +116,7 @@ async fn main() {
         .await
         .expect("Error creating client");
 
-    if let Err(why) = client.start().await {
-        println!("Client error: {why:?}");
+    if let Err(e) = client.start().await {
+        println!("Client error: {e:?}");
     }
 }
