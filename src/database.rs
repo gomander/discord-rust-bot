@@ -40,13 +40,22 @@ pub async fn get_thread_id_for_channel(channel_id: &str, client: &Postgrest) -> 
     match body {
         Ok(data) => {
             println!(r#"data: "{data}""#);
-            if data.len() < 3 {
+            if data.len() < 36 {
                 return None;
             }
-            if let Some(thread_id) = serde_json::json!(&data)[0]["thread_id"].as_str() {
-                Some(thread_id.to_string())
-            } else {
-                None
+            let parsed: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(&data);
+            match parsed {
+                Ok(value) => {
+                    if let Some(thread_id) = value[0]["thread_id"].as_str() {
+                        Some(thread_id.to_string())
+                    } else {
+                        None
+                    }
+                }
+                Err(e) => {
+                    println!("Error parsing thread ID for channel: {e:?}");
+                    None
+                }
             }
         }
         Err(e) => {
