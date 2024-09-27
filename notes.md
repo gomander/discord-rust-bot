@@ -16,9 +16,7 @@ Inactive threads are kept for 60 days before being deleted. If you don't want th
 
 ## Supabase
 
-WOW getting the Supabase integration working was harder than it needed to be. The documentation is bad. It's so hard to find exactly the article I need, and odds are it doesn't have complete information anyway. I've been forced to disable RLS on my table because I couldn't write to it otherwise, even using my service key. Whatever, the credentials are only going to be stored on the bot server anyway.
-
-A Supabase dev responded to a question about this a year ago saying that it's ideal to have RLS enabled but with the policy `revoke all on schema public from anon; revoke all on schema public from authenticated;`. I should investigate that.
+Setting up Supabase with the correct connection parameters, from URI to API keys, has been a pain. Thankfully, I've got it sorted now, and `.env.template` has all the necessary variables listed.
 
 ## Other things
 
@@ -29,7 +27,5 @@ I wanna add attachment parsing, including reading text-based files, listening to
 I would like to improve the logic for deciding if a message should be responded to. Constantly replying to the bot's last message is tedious.
 
 In the same vein, I think I want to batch messages, so as not to respond to every single message all the time, especially when multiple people are talking.
-
-The bot should probably save *every* message, not just ones it decides it should reply to. Context could easily be lost at the moment, which would be avoided this way.
 
 Wondering if this whole thing where I have one thread per channel/DM is not ideal. The bot would basically be two completely different "people" in two different channels in the same server, talking to the same people. Maybe that's fine? Would be neat if it could remember your conversations no matter where they were, though.

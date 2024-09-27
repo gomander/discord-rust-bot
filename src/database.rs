@@ -4,18 +4,16 @@ use postgrest::Postgrest;
 
 pub fn verify_env_vars() {
     var("DATABASE_URL").expect("DATABASE_URL must be set");
-    var("DATABASE_PUBLIC_KEY").expect("DATABASE_PUBLIC_KEY must be set");
     var("DATABASE_SERVICE_KEY").expect("DATABASE_SERVICE_KEY must be set");
 }
 
 pub fn initialize_database() -> Postgrest {
     let database_url = var("DATABASE_URL").unwrap();
-    let public_key = var("DATABASE_PUBLIC_KEY").unwrap();
     let service_key = var("DATABASE_SERVICE_KEY").unwrap();
 
     Postgrest::new(database_url)
-        .insert_header("apikey", public_key)
-        .insert_header("Authorization", service_key)
+        .insert_header("apikey", &service_key)
+        .insert_header("Authorization", format!("Bearer {service_key}"))
 }
 
 pub async fn get_thread_id_for_channel(channel_id: &str, client: &Postgrest) -> Option<String> {

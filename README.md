@@ -24,4 +24,4 @@ Create a `.env` file using the template provided.
 
 ## Running the bot
 
-`cargo run`
+Run a local dev version with `cargo run`. Run in debug mode with `DEBUG=true cargo run`.
