@@ -1,13 +1,13 @@
 use reqwest::Client;
 use serde::Deserialize;
-use serde_json::{json, Value};
+use serde_json::json;
 use serenity::{all::User, model::channel::Message};
 use std::env::var;
 
 const OPENAI_API: &str = "https://api.openai.com/v1";
 
 #[derive(Deserialize)]
-struct ThreadMessagesResponse {
+struct GetThreadMessagesResponse {
     data: Vec<ThreadMessage>,
 }
 
@@ -26,6 +26,21 @@ struct ThreadMessageContentText {
     value: String,
 }
 
+#[derive(Deserialize)]
+struct CreateThreadResponse {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct CreateThreadRunResponse {
+    id: String,
+}
+
+#[derive(Deserialize)]
+struct GetThreadRunResponse {
+    status: String,
+}
+
 pub fn verify_env_vars() {
     var("OPENAI_API_KEY").expect("OPENAI_API_KEY must be set");
     var("OPENAI_ASSISTANT_ID").expect("OPENAI_ASSISTANT_ID must be set");
@@ -41,10 +56,10 @@ pub async fn create_thread(client: &Client) -> String {
 
     match result {
         Ok(response) => {
-            let body = response.json::<Value>().await;
+            let body = response.json::<CreateThreadResponse>().await;
 
             match body {
-                Ok(json) => json["id"].as_str().unwrap_or_else(|| "error").to_string(),
+                Ok(json) => json.id,
                 Err(e) => {
                     println!("Error creating thread: {e:?}");
                     "error".to_string()
@@ -98,13 +113,10 @@ pub async fn create_run(user: &User, thread_id: &str, client: &Client) -> String
 
     match result {
         Ok(response) => {
-            let body = response.json::<Value>().await;
+            let body = response.json::<CreateThreadRunResponse>().await;
 
             match body {
-                Ok(json) => {
-                    let run_id = json["id"].as_str().unwrap_or_else(|| "error");
-                    run_id.to_string()
-                }
+                Ok(json) => json.id,
                 Err(e) => {
                     println!("Error creating run: {e:?}");
                     "error".to_string()
@@ -128,13 +140,10 @@ pub async fn check_run_status(run_id: &str, thread_id: &str, client: &Client) ->
 
     match result {
         Ok(response) => {
-            let body = response.json::<Value>().await;
+            let body = response.json::<GetThreadRunResponse>().await;
 
             match body {
-                Ok(json) => {
-                    let status = json["status"].as_str().unwrap_or_else(|| "failed");
-                    status.to_string()
-                }
+                Ok(json) => json.status,
                 Err(e) => {
                     println!("Error checking run status: {e:#?}");
                     "failed".to_string()
@@ -160,7 +169,7 @@ pub async fn get_thread_run_result(run_id: &str, thread_id: &str, client: &Clien
 
     match response {
         Ok(response) => {
-            let body = response.json::<ThreadMessagesResponse>().await;
+            let body = response.json::<GetThreadMessagesResponse>().await;
 
             match body {
                 Ok(body) => {
