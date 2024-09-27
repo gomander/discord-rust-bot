@@ -1,4 +1,8 @@
-use postgrest::Postgrest;
+use std::collections::HashMap;
+use std::env::var;
+use std::sync::Arc;
+
+use tokio::sync::Mutex;
 
 use serenity::all::User;
 use serenity::async_trait;
@@ -7,6 +11,8 @@ use serenity::model::gateway::Ready;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use serenity::utils::MessageBuilder;
+
+use postgrest::Postgrest;
 
 mod database;
 mod openai;
@@ -65,21 +71,51 @@ async fn send_response(response: &str, channel_id: &ChannelId, context: &Context
     }
 }
 
-struct Handler;
+struct Handler {
+    database: Arc<Postgrest>,
+    cache: Arc<Mutex<HashMap<String, String>>>,
+    debug: bool,
+}
 
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
-        if should_reply(&msg, &context.cache.current_user()) {
-            let database = database::initialize_database();
+        let channel_id = msg.channel_id.to_string();
+        let cache = self.cache.lock().await;
 
-            let thread_id =
-                database::get_thread_id_for_channel(&msg.channel_id.to_string(), &database).await;
-            let thread_id = match thread_id {
-                Some(id) => id,
-                None => create_thread(&msg.channel_id.to_string(), &database).await,
+        let thread_id = if let Some(thread_id) = cache.get(&channel_id) {
+            if self.debug {
+                println!("Using cached thread ID");
             };
+            thread_id.clone()
+        } else {
+            drop(cache);
+            let thread_id =
+                database::get_thread_id_for_channel(&msg.channel_id.to_string(), &self.database)
+                    .await;
+            let thread_id = match thread_id {
+                Some(id) => {
+                    if self.debug {
+                        println!("Using thread ID from database");
+                    };
+                    id
+                }
+                None => {
+                    if self.debug {
+                        println!("Creating new thread ID");
+                    };
+                    create_thread(&msg.channel_id.to_string(), &self.database).await
+                }
+            };
+            let mut cache = self.cache.lock().await;
+            cache.insert(channel_id, thread_id.clone());
+            thread_id
+        };
+        if self.debug {
+            println!("Thread ID: {}", thread_id);
+        };
 
+        if should_reply(&msg, &context.cache.current_user()) {
             msg.channel_id
                 .broadcast_typing(&context.http)
                 .await
@@ -98,19 +134,35 @@ impl EventHandler for Handler {
 #[tokio::main]
 async fn main() {
     dotenv::dotenv().ok();
-    let token = std::env::var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
+    let token = var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
     openai::verify_env_vars();
     database::verify_env_vars();
+
+    let database = Arc::new(database::initialize_database());
+    let cache = Arc::new(Mutex::new(HashMap::new()));
+    let debug = is_debug_mode();
 
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(&token, intents)
-        .event_handler(Handler)
+        .event_handler(Handler {
+            database: Arc::clone(&database),
+            cache: Arc::clone(&cache),
+            debug,
+        })
         .await
         .expect("Error creating client");
 
     if let Err(e) = client.start().await {
         println!("Client error: {e:?}");
-    }
+    };
+}
+
+fn is_debug_mode() -> bool {
+    let debug = var("DEBUG").unwrap_or_else(|_| "false".to_string()) == "true";
+    if debug {
+        println!("Running in debug mode");
+    };
+    debug
 }
