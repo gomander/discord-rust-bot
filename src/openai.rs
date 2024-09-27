@@ -1,8 +1,8 @@
-use std::env::var;
-
+use reqwest::Client;
 use serde::Deserialize;
-
+use serde_json::{json, Value};
 use serenity::{all::User, model::channel::Message};
+use std::env::var;
 
 const OPENAI_API: &str = "https://api.openai.com/v1";
 
@@ -31,19 +31,26 @@ pub fn verify_env_vars() {
     var("OPENAI_ASSISTANT_ID").expect("OPENAI_ASSISTANT_ID must be set");
 }
 
-pub async fn create_thread(client: &reqwest::Client) -> String {
+pub async fn create_thread(client: &Client) -> String {
     let result = client
         .post(format!("{OPENAI_API}/threads"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
         .send()
-        .await
-        .unwrap()
-        .json::<serde_json::Value>()
         .await;
 
     match result {
-        Ok(json) => json["id"].as_str().unwrap().to_string(),
+        Ok(response) => {
+            let body = response.json::<Value>().await;
+
+            match body {
+                Ok(json) => json["id"].as_str().unwrap_or_else(|| "error").to_string(),
+                Err(e) => {
+                    println!("Error creating thread: {e:?}");
+                    "error".to_string()
+                }
+            }
+        }
         Err(e) => {
             println!("Error creating thread: {e:?}");
             "error".to_string()
@@ -51,13 +58,13 @@ pub async fn create_thread(client: &reqwest::Client) -> String {
     }
 }
 
-pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &reqwest::Client) {
+pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &Client) {
     let user_name = get_user_name(&msg.author);
     let result = client
         .post(format!("{OPENAI_API}/threads/{thread_id}/messages"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
-        .json(&serde_json::json!({
+        .json(&json!({
             "content": format!(
                 "{user_name} ({}): \"\"\"\n{}\n\"\"\"",
                 msg.author.id.to_string(),
@@ -73,29 +80,36 @@ pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &reqw
     };
 }
 
-pub async fn create_run(user: &User, thread_id: &str, client: &reqwest::Client) -> String {
+pub async fn create_run(user: &User, thread_id: &str, client: &Client) -> String {
     let user_name = get_user_name(user);
     let result = client
         .post(format!("{OPENAI_API}/threads/{thread_id}/runs"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
-        .json(&serde_json::json!({
+        .json(&json!({
             "assistant_id": var("OPENAI_ASSISTANT_ID").unwrap(),
             "additional_instructions": format!(
-                "The most recent message was sent by {user_name} ({})",
+                "The most recent message was sent by {user_name} (ID: {})",
                 user.id.to_string()
             ),
         }))
         .send()
-        .await
-        .unwrap()
-        .json::<serde_json::Value>()
         .await;
 
     match result {
-        Ok(json) => {
-            let run_id = json["id"].as_str().unwrap();
-            run_id.to_string()
+        Ok(response) => {
+            let body = response.json::<Value>().await;
+
+            match body {
+                Ok(json) => {
+                    let run_id = json["id"].as_str().unwrap_or_else(|| "error");
+                    run_id.to_string()
+                }
+                Err(e) => {
+                    println!("Error creating run: {e:?}");
+                    "error".to_string()
+                }
+            }
         }
         Err(e) => {
             println!("Error creating run: {e:?}");
@@ -104,52 +118,69 @@ pub async fn create_run(user: &User, thread_id: &str, client: &reqwest::Client) 
     }
 }
 
-pub async fn check_run_status(run_id: &str, thread_id: &str, client: &reqwest::Client) -> String {
+pub async fn check_run_status(run_id: &str, thread_id: &str, client: &Client) -> String {
     let result = client
         .get(format!("{OPENAI_API}/threads/{thread_id}/runs/{run_id}"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
         .send()
-        .await
-        .unwrap()
-        .json::<serde_json::Value>()
         .await;
 
     match result {
-        Ok(json) => {
-            let status = json["status"].as_str().unwrap();
-            status.to_string()
+        Ok(response) => {
+            let body = response.json::<Value>().await;
+
+            match body {
+                Ok(json) => {
+                    let status = json["status"].as_str().unwrap_or_else(|| "failed");
+                    status.to_string()
+                }
+                Err(e) => {
+                    println!("Error checking run status: {e:#?}");
+                    "failed".to_string()
+                }
+            }
         }
         Err(e) => {
-            println!("Error checking run status: {e:?}");
-            "error".to_string()
+            println!("Error checking run status: {e:#?}");
+            "failed".to_string()
         }
     }
 }
 
-pub async fn get_thread_run_result(
-    run_id: &str,
-    thread_id: &str,
-    client: &reqwest::Client,
-) -> String {
-    let response: ThreadMessagesResponse = client
+pub async fn get_thread_run_result(run_id: &str, thread_id: &str, client: &Client) -> String {
+    let response = client
         .get(format!(
             "{OPENAI_API}/threads/{thread_id}/messages?run_id={run_id}"
         ))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
         .send()
-        .await
-        .unwrap()
-        .json()
-        .await
-        .unwrap();
+        .await;
 
-    if response.data.is_empty() || response.data[0].content.is_empty() {
-        return "No response from OpenAI".to_string();
+    match response {
+        Ok(response) => {
+            let body = response.json::<ThreadMessagesResponse>().await;
+
+            match body {
+                Ok(body) => {
+                    if body.data.is_empty() || body.data[0].content.is_empty() {
+                        return "No response from OpenAI".to_string();
+                    };
+
+                    body.data[0].content[0].text.value.to_string()
+                }
+                Err(e) => {
+                    println!("Error getting thread run result: {e:#?}");
+                    "error".to_string()
+                }
+            }
+        }
+        Err(e) => {
+            println!("Error getting thread run result: {e:#?}");
+            "error".to_string()
+        }
     }
-
-    response.data[0].content[0].text.value.to_string()
 }
 
 fn get_auth_header() -> String {

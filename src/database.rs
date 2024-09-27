@@ -1,6 +1,6 @@
-use std::env::var;
-
 use postgrest::Postgrest;
+use serde_json::{from_str, Value};
+use std::env::var;
 
 pub fn verify_env_vars() {
     var("DATABASE_URL").expect("DATABASE_URL must be set");
@@ -37,7 +37,7 @@ pub async fn get_thread_id_for_channel(channel_id: &str, client: &Postgrest) -> 
             if data.len() < 36 {
                 return None;
             }
-            let parsed: Result<serde_json::Value, serde_json::Error> = serde_json::from_str(&data);
+            let parsed = from_str::<Value>(&data);
             match parsed {
                 Ok(value) => value[0]["thread_id"]
                     .as_str()

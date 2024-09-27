@@ -1,9 +1,5 @@
-use std::{collections::HashMap, env::var, sync::Arc};
-
+use postgrest::Postgrest;
 use reqwest::Client as ReqwestClient;
-
-use tokio::sync::Mutex;
-
 use serenity::all::User;
 use serenity::async_trait;
 use serenity::model::channel::Message;
@@ -11,8 +7,8 @@ use serenity::model::gateway::Ready;
 use serenity::model::id::ChannelId;
 use serenity::prelude::*;
 use serenity::utils::MessageBuilder;
-
-use postgrest::Postgrest;
+use std::{collections::HashMap, env::var, sync::Arc};
+use tokio::sync::Mutex;
 
 mod database;
 mod openai;
