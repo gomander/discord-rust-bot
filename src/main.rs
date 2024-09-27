@@ -1,6 +1,6 @@
-use std::collections::HashMap;
-use std::env::var;
-use std::sync::Arc;
+use std::{collections::HashMap, env::var, sync::Arc};
+
+use reqwest::Client as ReqwestClient;
 
 use tokio::sync::Mutex;
 
@@ -16,6 +16,10 @@ use postgrest::Postgrest;
 
 mod database;
 mod openai;
+
+fn should_store(msg: &Message, current_user: &User) -> bool {
+    msg.author.id != current_user.id && msg.content.len() > 0 && !msg.author.bot
+}
 
 fn should_reply(msg: &Message, current_user: &User) -> bool {
     let is_bot = msg.author.bot;
@@ -34,29 +38,25 @@ fn should_reply(msg: &Message, current_user: &User) -> bool {
 }
 
 async fn create_thread(channel_id: &str, database: &Postgrest) -> String {
-    let thread_id = openai::create_thread(&reqwest::Client::new()).await;
+    let thread_id = openai::create_thread(&ReqwestClient::new()).await;
     database::set_thread(&thread_id, channel_id, database).await;
     thread_id
 }
 
-async fn get_response(msg: &Message, thread_id: &str) -> String {
-    let client = reqwest::Client::new();
-
-    openai::add_message_to_thread(msg, thread_id, &client).await;
-
-    let run_id = openai::create_run(&msg.author, thread_id, &client).await;
+async fn get_response(msg: &Message, thread_id: &str, reqwest: &ReqwestClient) -> String {
+    let run_id = openai::create_run(&msg.author, thread_id, &reqwest).await;
 
     let terminal_statuses = ["completed", "expired", "failed", "cancelled", "incomplete"];
 
     for i in 0..10 {
-        let status = openai::check_run_status(&run_id, thread_id, &client).await;
+        let status = openai::check_run_status(&run_id, thread_id, &reqwest).await;
         if terminal_statuses.contains(&status.as_str()) {
             break;
         }
         std::thread::sleep(std::time::Duration::from_secs(i + 3));
     }
 
-    openai::get_thread_run_result(&run_id, thread_id, &client).await
+    openai::get_thread_run_result(&run_id, thread_id, &reqwest).await
 }
 
 async fn send_response(response: &str, channel_id: &ChannelId, context: &Context) {
@@ -74,6 +74,7 @@ async fn send_response(response: &str, channel_id: &ChannelId, context: &Context
 struct Handler {
     database: Arc<Postgrest>,
     cache: Arc<Mutex<HashMap<String, String>>>,
+    reqwest: ReqwestClient,
     debug: bool,
 }
 
@@ -115,13 +116,25 @@ impl EventHandler for Handler {
             println!("Thread ID: {}", thread_id);
         };
 
-        if should_reply(&msg, &context.cache.current_user()) {
+        let current_user = &context.cache.current_user().clone();
+
+        if should_store(&msg, current_user) {
+            if self.debug {
+                println!("Adding message to thread");
+            };
+            openai::add_message_to_thread(&msg, &thread_id, &self.reqwest).await;
+        }
+
+        if should_reply(&msg, current_user) {
+            if self.debug {
+                println!("Generating response");
+            };
             msg.channel_id
                 .broadcast_typing(&context.http)
                 .await
                 .unwrap();
 
-            let response = get_response(&msg, &thread_id).await;
+            let response = get_response(&msg, &thread_id, &self.reqwest).await;
             send_response(&response, &msg.channel_id, &context).await;
         };
     }
@@ -133,14 +146,11 @@ impl EventHandler for Handler {
 
 #[tokio::main]
 async fn main() {
-    dotenv::dotenv().ok();
+    verify_env_vars();
     let token = var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
-    openai::verify_env_vars();
-    database::verify_env_vars();
 
     let database = Arc::new(database::initialize_database());
     let cache = Arc::new(Mutex::new(HashMap::new()));
-    let debug = is_debug_mode();
 
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
@@ -149,7 +159,8 @@ async fn main() {
         .event_handler(Handler {
             database: Arc::clone(&database),
             cache: Arc::clone(&cache),
-            debug,
+            reqwest: ReqwestClient::new(),
+            debug: is_debug_mode(),
         })
         .await
         .expect("Error creating client");
@@ -157,6 +168,12 @@ async fn main() {
     if let Err(e) = client.start().await {
         println!("Client error: {e:?}");
     };
+}
+
+fn verify_env_vars() {
+    dotenv::dotenv().ok();
+    openai::verify_env_vars();
+    database::verify_env_vars();
 }
 
 fn is_debug_mode() -> bool {
