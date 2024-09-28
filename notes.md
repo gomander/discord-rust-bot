@@ -28,8 +28,10 @@ Here's the NodeJS project that inspired the approach of using OpenAI assistants 
 
 I wanna add attachment parsing, including reading text-based files, listening to audio, and vision support.
 
-I would like to improve the logic for deciding if a message should be responded to. Constantly replying to the bot's last message is tedious. No clue how I'd accomplish that, though.
+I would like to improve the logic for deciding if a message should be responded to. Constantly replying to the bot's last message is tedious. No clue how I'd accomplish that, though. Might need an extra OpenAI API call to check if it is relevant to the bot user. Maybe the internal monologue could decide?
 
-In the same vein, I think I want to batch messages, so as not to respond to every single message all the time, especially when multiple people are talking.
+In the same vein, I think I want to batch messages, so as not to respond to every single message all the time, especially when multiple people are talking. This might be possible by creating a new messages cache that is written to when the bot receives a message, but only acted upon periodically, then cleared.
 
-Wondering if this whole thing where I have one thread per channel/DM is not ideal. The bot would basically be two completely different "people" in two different channels in the same server, talking to the same people. Maybe that's fine? Would be neat if it could remember your conversations no matter where they were, though.
+Wondering if this whole thing where I have one thread per channel/DM is not ideal. The bot would basically be two completely different "people" in two different channels in the same server, talking to the same people. Maybe that's fine? Would be neat if it could remember your conversations no matter where they were, though. This might be doable with a runtime flag similar to debug mode that enables global memory. In that case, just hard-code the channel_id to "0" regardless of what channel the bot receives a message in.
+
+The bot might benefit from fetching all the messages it missed while it was offline. At startup, maybe it should query the channels it has threads for and fetch all messages after the last one it has in the thread by attaching the message IDs as metadata, then adding those to the thread.

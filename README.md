@@ -6,9 +6,13 @@ This is a simple work-in-progress Discord bot that responds to messages. I'm ver
 
 You'll need a Discord app, an OpenAI API key and an assistant, and a Supabase database.
 
+### Rust
+
+I assume you already have Rust set up if you're here. If not, follow the steps at https://rustup.rs/. If you're on Windows, I *strongly* recommend using Windows Subsystem for Linux.
+
 ### Discord
 
-Create an app and add it to a server. Make sure it has all privileged gateway intents enabled and is given reasonable permissions including "View Channels", "Send Messages", and "Send Messages in Threads".
+Create a Discord application at https://discord.com/developers/applications, and add it to a server using a link created with the OAuth2 URL generator. Give it the "bot" scope and reasonable permissions including "View Channels" and "Send Messages". Make sure it has the message content privileged gateway intent enabled.
 
 ### OpenAI
 
@@ -37,7 +41,7 @@ Generally, you should refer to others by their username or a mutually agreed upo
 
 Create a table in Supabase called "threads_to_channels" with the primary key column being "thread_id" and another column "channel_id". Both should non-nullable text and unique.
 
-Here is a SQL query to create such a table.
+Here is a SQL query to create such a table using the Supabase SQL editor.
 
 ```sql
 CREATE TABLE
