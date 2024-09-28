@@ -1,7 +1,6 @@
 use reqwest::Client;
 use serde::Deserialize;
 use serde_json::json;
-use serenity::{all::User, model::channel::Message};
 use std::env::var;
 
 const OPENAI_API: &str = "https://api.openai.com/v1";
@@ -73,18 +72,13 @@ pub async fn create_thread(client: &Client) -> String {
     }
 }
 
-pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &Client) {
-    let user_name = get_user_name(&msg.author);
+pub async fn add_message_to_thread(message: &str, thread_id: &str, client: &Client) {
     let result = client
         .post(format!("{OPENAI_API}/threads/{thread_id}/messages"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
         .json(&json!({
-            "content": format!(
-                "{user_name} ({}): \"\"\"\n{}\n\"\"\"",
-                msg.author.id.to_string(),
-                msg.content
-            ),
+            "content": message,
             "role": "user",
         }))
         .send()
@@ -95,18 +89,14 @@ pub async fn add_message_to_thread(msg: &Message, thread_id: &str, client: &Clie
     };
 }
 
-pub async fn create_run(user: &User, thread_id: &str, client: &Client) -> String {
-    let user_name = get_user_name(user);
+pub async fn create_run(instructions: &str, thread_id: &str, client: &Client) -> String {
     let result = client
         .post(format!("{OPENAI_API}/threads/{thread_id}/runs"))
         .header("Authorization", get_auth_header())
         .header("OpenAI-Beta", "assistants=v2")
         .json(&json!({
             "assistant_id": var("OPENAI_ASSISTANT_ID").unwrap(),
-            "additional_instructions": format!(
-                "The most recent message was sent by {user_name} (ID: {})",
-                user.id.to_string()
-            ),
+            "additional_instructions": instructions,
         }))
         .send()
         .await;
@@ -194,11 +184,4 @@ pub async fn get_thread_run_result(run_id: &str, thread_id: &str, client: &Clien
 
 fn get_auth_header() -> String {
     format!("Bearer {}", var("OPENAI_API_KEY").unwrap())
-}
-
-fn get_user_name(user: &User) -> String {
-    user.global_name
-        .as_deref()
-        .unwrap_or(&user.name)
-        .to_string()
 }

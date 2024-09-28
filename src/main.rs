@@ -10,8 +10,46 @@ use serenity::utils::MessageBuilder;
 use std::{collections::HashMap, env::var, sync::Arc};
 use tokio::sync::Mutex;
 
+mod attachment;
 mod database;
 mod openai;
+mod util;
+
+async fn get_thread_id(
+    channel_id: &str,
+    cache: &Arc<Mutex<HashMap<String, String>>>,
+    database: &Postgrest,
+    debug: bool,
+) -> String {
+    let cache_guard = cache.lock().await;
+
+    if let Some(thread_id) = cache_guard.get(channel_id) {
+        if debug {
+            println!("Using cached thread ID: {thread_id}");
+        };
+        thread_id.clone()
+    } else {
+        drop(cache_guard);
+        let thread_id = database::get_thread_id_for_channel(channel_id, database).await;
+        let thread_id = match thread_id {
+            Some(id) => {
+                if debug {
+                    println!("Using thread ID from database: {id}");
+                };
+                id
+            }
+            None => {
+                if debug {
+                    println!("Creating new thread ID");
+                };
+                create_thread(channel_id, database).await
+            }
+        };
+        let mut cache_guard = cache.lock().await;
+        cache_guard.insert(channel_id.to_string(), thread_id.clone());
+        thread_id
+    }
+}
 
 fn should_store(msg: &Message, current_user: &User) -> bool {
     msg.author.id != current_user.id && msg.content.len() > 0 && !msg.author.bot
@@ -40,7 +78,16 @@ async fn create_thread(channel_id: &str, database: &Postgrest) -> String {
 }
 
 async fn get_response(msg: &Message, thread_id: &str, reqwest: &ReqwestClient) -> String {
-    let run_id = openai::create_run(&msg.author, thread_id, &reqwest).await;
+    let run_id = openai::create_run(
+        &format!(
+            "The most recent message was sent by {} (ID: {})",
+            util::get_user_name(&msg.author),
+            msg.author.id
+        ),
+        thread_id,
+        &reqwest,
+    )
+    .await;
 
     let terminal_statuses = ["completed", "expired", "failed", "cancelled", "incomplete"];
 
@@ -62,7 +109,7 @@ async fn send_response(response: &str, channel_id: &ChannelId, context: &Context
             .build();
 
         if let Err(e) = channel_id.say(&context.http, &message).await {
-            println!("Error sending message: {e:?}");
+            println!("Error sending message: {e:#?}");
         }
     }
 }
@@ -77,40 +124,13 @@ struct Handler {
 #[async_trait]
 impl EventHandler for Handler {
     async fn message(&self, context: Context, msg: Message) {
-        let channel_id = msg.channel_id.to_string();
-        let cache = self.cache.lock().await;
-
-        let thread_id = if let Some(thread_id) = cache.get(&channel_id) {
-            if self.debug {
-                println!("Using cached thread ID");
-            };
-            thread_id.clone()
-        } else {
-            drop(cache);
-            let thread_id =
-                database::get_thread_id_for_channel(&msg.channel_id.to_string(), &self.database)
+        let thread_id = get_thread_id(
+            &msg.channel_id.to_string(),
+            &self.cache,
+            &self.database,
+            self.debug,
+        )
                     .await;
-            let thread_id = match thread_id {
-                Some(id) => {
-                    if self.debug {
-                        println!("Using thread ID from database");
-                    };
-                    id
-                }
-                None => {
-                    if self.debug {
-                        println!("Creating new thread ID");
-                    };
-                    create_thread(&msg.channel_id.to_string(), &self.database).await
-                }
-            };
-            let mut cache = self.cache.lock().await;
-            cache.insert(channel_id, thread_id.clone());
-            thread_id
-        };
-        if self.debug {
-            println!("Thread ID: {}", thread_id);
-        };
 
         let current_user = &context.cache.current_user().clone();
 
@@ -145,16 +165,13 @@ async fn main() {
     verify_env_vars();
     let token = var("DISCORD_TOKEN").expect("DISCORD_TOKEN not set!");
 
-    let database = Arc::new(database::initialize_database());
-    let cache = Arc::new(Mutex::new(HashMap::new()));
-
     let intents = GatewayIntents::GUILD_MESSAGES
         | GatewayIntents::DIRECT_MESSAGES
         | GatewayIntents::MESSAGE_CONTENT;
     let mut client = Client::builder(&token, intents)
         .event_handler(Handler {
-            database: Arc::clone(&database),
-            cache: Arc::clone(&cache),
+            database: Arc::new(database::initialize_database()),
+            cache: Arc::new(Mutex::new(HashMap::new())),
             reqwest: ReqwestClient::new(),
             debug: is_debug_mode(),
         })
@@ -162,7 +179,7 @@ async fn main() {
         .expect("Error creating client");
 
     if let Err(e) = client.start().await {
-        println!("Client error: {e:?}");
+        println!("Client error: {e:#?}");
     };
 }
 

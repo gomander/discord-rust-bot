@@ -11,9 +11,11 @@ pub fn initialize_database() -> Postgrest {
     let database_url = var("DATABASE_URL").unwrap();
     let service_key = var("DATABASE_SERVICE_KEY").unwrap();
 
-    Postgrest::new(database_url)
+    let database = Postgrest::new(database_url)
         .insert_header("apikey", &service_key)
-        .insert_header("Authorization", format!("Bearer {service_key}"))
+        .insert_header("Authorization", format!("Bearer {service_key}"));
+    println!("Database initialized");
+    database
 }
 
 pub async fn get_thread_id_for_channel(channel_id: &str, client: &Postgrest) -> Option<String> {
