@@ -10,9 +10,13 @@ Yeah I know dotenv is unmaintained and thus not recommended, but I got tired of 
 
 Discord works pretty great so far. Still want to look into creating slash commands, but last I tried it seemed difficult. The Serenity team recommends using Poise for that, but I think that might require a bit of a rewrite.
 
+I should replace mentions in incoming messages before they're added to the thread. This should make it easier for the bot to follow conversations. Perhaps leave the mention, but add something like <#channel id> [channel name].
+
 ## OpenAI
 
 Inactive threads are kept for 60 days before being deleted. If you don't want the bot to lose its memory, make sure to poke it every couple months.
+
+The bot may need some internal monologue solution to be able perform complex tasks like coding, math, and picking a number without telling the user.
 
 ## Supabase
 
@@ -24,7 +28,7 @@ Here's the NodeJS project that inspired the approach of using OpenAI assistants 
 
 I wanna add attachment parsing, including reading text-based files, listening to audio, and vision support.
 
-I would like to improve the logic for deciding if a message should be responded to. Constantly replying to the bot's last message is tedious.
+I would like to improve the logic for deciding if a message should be responded to. Constantly replying to the bot's last message is tedious. No clue how I'd accomplish that, though.
 
 In the same vein, I think I want to batch messages, so as not to respond to every single message all the time, especially when multiple people are talking.
 
