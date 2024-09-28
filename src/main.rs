@@ -130,7 +130,7 @@ impl EventHandler for Handler {
             &self.database,
             self.debug,
         )
-                    .await;
+        .await;
 
         let current_user = &context.cache.current_user().clone();
 
@@ -138,7 +138,27 @@ impl EventHandler for Handler {
             if self.debug {
                 println!("Adding message to thread");
             };
-            openai::add_message_to_thread(&msg, &thread_id, &self.reqwest).await;
+            let mut message = format!(
+                "{} ({}): \"\"\"\n{}\n\"\"\"",
+                util::get_user_name(&msg.author),
+                &msg.author.id,
+                &msg.content
+            );
+            for file in &msg.attachments {
+                let attachment_data = attachment::get_attachment_data(&file).await;
+                match attachment_data {
+                    Some(data) => {
+                        message = format!(
+                            "{message}\nAttachment \"{}\": \"\"\"\n{data}\n\"\"\"",
+                            file.filename
+                        );
+                    }
+                    None => {
+                        println!("Error getting attachment data");
+                    }
+                };
+            }
+            openai::add_message_to_thread(&message, &thread_id, &self.reqwest).await;
         }
 
         if should_reply(&msg, current_user) {
