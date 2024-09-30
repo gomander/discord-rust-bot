@@ -73,6 +73,7 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 			end = if in_code_block {
 				// The end is currently in a code block, so we need to decide how to proceed
 				if let Some(backticks_pos) = substr.rfind("```") {
+					// We are in a multiline code block
 					if let Some(_) =
 						&message[backticks_pos + 3..(backticks_pos + max_length).min(message.len())].find("```")
 					{
@@ -90,11 +91,12 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 						} else if let Some(comma_pos) = substr.rfind(',') {
 							start + comma_pos + 1
 						} else {
-							// This chunk will just be "```"
+							// This chunk will just be "```" because we can't find a good place to break
 							start + backticks_pos + 3
 						}
 					}
 				} else if let Some(backtick_pos) = substr.rfind('`') {
+					// We are in an inline code block
 					if let Some(_) =
 						&message[backtick_pos + 1..(backtick_pos + max_length).min(message.len())].find('`')
 					{
@@ -104,36 +106,42 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 					} else {
 						// Code block is longer than max_length, so we need to find a place to break in the code block
 						// For now, we just immediately break after the code block starts
+						// I don't imagine there are many inline code blocks that are longer than 2000 characters
 						start + backtick_pos + 1
 					}
-				} else if let Some(pos) = substr.rfind('\n') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind(';') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind(' ') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind(',') {
-					start + pos + 1
+				} else if let Some(newline_pos) = substr.rfind('\n') {
+					start + newline_pos + 1
+				} else if let Some(semi_pos) = substr.rfind(';') {
+					start + semi_pos + 1
+				} else if let Some(space_pos) = substr.rfind(' ') {
+					start + space_pos + 1
+				} else if let Some(comma_pos) = substr.rfind(',') {
+					start + comma_pos + 1
 				} else {
+					// This code block probably contains a long base64 string or something with no good place to break
 					end
 				}
 			} else {
 				// The end is not in a code block
 				if substr.starts_with("```") {
 					// There is a code block at the start of the chunk
-					if let Some(pos) = &message[start + 3..end].find("```") {
+					if let Some(backticks_pos) = &message[start + 3..end].find("```") {
 						// Terminate the chunk at the end of the code block, so that we don't split the code block unnecessarily at a newline
-						start + 3 + pos + 3
+						start + 3 + backticks_pos + 3
 					} else {
+						// The code block is just never closed
 						end
 					}
 				} else if substr.starts_with('`') {
-					if let Some(pos) = &message[start + 1..end].find('`') {
-						start + 1 + pos + 1
+					// There is an inline code block at the start of the chunk
+					if let Some(backtick_pos) = &message[start + 1..end].find('`') {
+						start + 1 + backtick_pos + 1
 					} else {
+						// The code block is just never closed
 						end
 					}
 				} else {
+					// If there are any code blocks in the chunk, they are somewhere in the middle and can be ignored
 					if let Some(pos) = substr.rfind('\n') {
 						start + pos + 1
 					} else if let Some(pos) = substr.rfind(". ") {
@@ -145,6 +153,7 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 					} else if let Some(pos) = substr.rfind(',') {
 						start + pos + 1
 					} else {
+						// This is probably some really long base64 string or something with no good place to break
 						end
 					}
 				}
