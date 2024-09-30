@@ -45,7 +45,7 @@ pub fn get_user_name(user: &User) -> String {
 		.to_string()
 }
 
-fn split_message(message: &str, max_length: usize) -> Vec<&str> {
+pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 	if message.len() <= max_length {
 		return vec![&message];
 	};
@@ -69,35 +69,46 @@ fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 				};
 			}
 
-			// TODO: Handle code blocks better
-			// The problem now is that if a code block is split between two chunks, the starting
-			// backticks will terminate the current chunk when they should be included at the start
-			// of the next chunk.
-			// Unfortunately, simply removing the + 3 or + 1 from the end calculation will cause
-			// an infinte loop of adding 0 length strs to the chunks vector if the code block
-			// is longer than max_length, since the rfind will always find the starting backticks.
-			// This entire block needs to be rethought.
-
-			// I added a check to see if the next set of backticks is within the next max_length, in
-			// which case I terminate the chunk before the starting backticks.
-
-			// I am so sorry.
+			// TODO: Refactor this monstrosity
 			end = if in_code_block {
-				if let Some(pos) = substr.rfind("```") {
-					in_code_block = false;
-					if let Some(_) = &message[pos + 3..(pos + max_length).min(message.len())].rfind("```") {
-						start + pos
+				// The end is currently in a code block, so we need to decide how to proceed
+				if let Some(backticks_pos) = substr.rfind("```") {
+					if let Some(_) =
+						&message[backticks_pos + 3..(backticks_pos + max_length).min(message.len())].find("```")
+					{
+						// Next set of backticks are within reach of these backticks, so break before the code block starts
+						in_code_block = false;
+						start + backticks_pos
 					} else {
-						start + pos + 3
+						// Code block is longer than max_length, so we need to find a place to break in the code block
+						if let Some(newline_pos) = substr.rfind('\n') {
+							start + newline_pos + 1
+						} else if let Some(semi_pos) = substr.rfind(';') {
+							start + semi_pos + 1
+						} else if let Some(space_pos) = substr.rfind(' ') {
+							start + space_pos + 1
+						} else if let Some(comma_pos) = substr.rfind(',') {
+							start + comma_pos + 1
+						} else {
+							// This chunk will just be "```"
+							start + backticks_pos + 3
+						}
 					}
-				} else if let Some(pos) = substr.rfind('`') {
-					in_code_block = false;
-					if let Some(_) = &message[pos + 1..(pos + max_length).min(message.len())].rfind('`') {
-						start + pos
+				} else if let Some(backtick_pos) = substr.rfind('`') {
+					if let Some(_) =
+						&message[backtick_pos + 1..(backtick_pos + max_length).min(message.len())].find('`')
+					{
+						// Next backtick is within reach of this backtick, so break before the code block starts
+						in_code_block = false;
+						start + backtick_pos
 					} else {
-						start + pos + 1
+						// Code block is longer than max_length, so we need to find a place to break in the code block
+						// For now, we just immediately break after the code block starts
+						start + backtick_pos + 1
 					}
 				} else if let Some(pos) = substr.rfind('\n') {
+					start + pos + 1
+				} else if let Some(pos) = substr.rfind(';') {
 					start + pos + 1
 				} else if let Some(pos) = substr.rfind(' ') {
 					start + pos + 1
@@ -107,18 +118,35 @@ fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 					end
 				}
 			} else {
-				if let Some(pos) = substr.rfind('\n') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind(". ") {
-					start + pos + 2
-				} else if let Some(pos) = substr.rfind(' ') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind('.') {
-					start + pos + 1
-				} else if let Some(pos) = substr.rfind(',') {
-					start + pos + 1
+				// The end is not in a code block
+				if substr.starts_with("```") {
+					// There is a code block at the start of the chunk
+					if let Some(pos) = &message[start + 3..end].find("```") {
+						// Terminate the chunk at the end of the code block, so that we don't split the code block unnecessarily at a newline
+						start + 3 + pos + 3
+					} else {
+						end
+					}
+				} else if substr.starts_with('`') {
+					if let Some(pos) = &message[start + 1..end].find('`') {
+						start + 1 + pos + 1
+					} else {
+						end
+					}
 				} else {
-					end
+					if let Some(pos) = substr.rfind('\n') {
+						start + pos + 1
+					} else if let Some(pos) = substr.rfind(". ") {
+						start + pos + 2
+					} else if let Some(pos) = substr.rfind(' ') {
+						start + pos + 1
+					} else if let Some(pos) = substr.rfind('.') {
+						start + pos + 1
+					} else if let Some(pos) = substr.rfind(',') {
+						start + pos + 1
+					} else {
+						end
+					}
 				}
 			};
 

@@ -7,6 +7,8 @@ use tokio::sync::Mutex;
 mod database;
 mod discord;
 mod openai;
+#[cfg(test)]
+mod test;
 
 #[tokio::main]
 async fn main() {
@@ -59,32 +61,32 @@ impl EventHandler for Handler {
 		)
 		.await
 		{
-		if should_store(&msg, &current_user) {
-			if self.debug {
-				println!("Adding message to thread");
+			if should_store(&msg, &current_user) {
+				if self.debug {
+					println!("Adding message to thread");
+				};
+
+				openai::add_message_to_thread(
+					&create_thread_message(&msg, self.debug).await,
+					&thread_id,
+					&self.reqwest,
+				)
+				.await;
 			};
 
-			openai::add_message_to_thread(
-				&create_thread_message(&msg, self.debug).await,
-				&thread_id,
-				&self.reqwest,
-			)
-			.await;
-		};
+			if should_reply(&msg, &current_user) {
+				if self.debug {
+					println!("Generating response");
+				};
 
-		if should_reply(&msg, &current_user) {
-			if self.debug {
-				println!("Generating response");
-			};
-
-			msg
-				.channel_id
-				.broadcast_typing(&context.http)
-				.await
+				msg
+					.channel_id
+					.broadcast_typing(&context.http)
+					.await
 					.unwrap_or_default();
 
 				if let Some(response) = get_response(&msg, &thread_id, &self.reqwest, self.debug).await {
-			discord::send_message(&response, &msg.channel_id, &context).await;
+					discord::send_message(&response, &msg.channel_id, &context).await;
 				};
 			};
 		} else {
@@ -127,8 +129,8 @@ async fn get_thread_id(
 				create_thread(channel_id, database, &reqwest).await
 			}
 		} {
-		let mut cache_guard = cache.lock().await;
-		cache_guard.insert(channel_id.to_string(), thread_id.clone());
+			let mut cache_guard = cache.lock().await;
+			cache_guard.insert(channel_id.to_string(), thread_id.clone());
 			Some(thread_id)
 		} else {
 			None
@@ -191,7 +193,7 @@ async fn create_thread(
 	reqwest: &ReqwestClient,
 ) -> Option<String> {
 	if let Some(thread_id) = openai::create_thread(&reqwest).await {
-	database::set_thread(&thread_id, channel_id, database).await;
+		database::set_thread(&thread_id, channel_id, database).await;
 		Some(thread_id)
 	} else {
 		None
@@ -219,7 +221,7 @@ async fn get_response(
 	{
 		for _ in 0..10 {
 			std::thread::sleep(std::time::Duration::from_secs(4));
-		let status = openai::check_run_status(&run_id, thread_id, &reqwest).await;
+			let status = openai::check_run_status(&run_id, thread_id, &reqwest).await;
 			if TERMINAL_STATUSES.contains(&status.as_str()) {
 				if &status == "completed" {
 					return openai::get_thread_run_result(&run_id, thread_id, &reqwest).await;
@@ -230,9 +232,9 @@ async fn get_response(
 					return None;
 				};
 			}
-	}
+		}
 
-	openai::get_thread_run_result(&run_id, thread_id, &reqwest).await
+		openai::get_thread_run_result(&run_id, thread_id, &reqwest).await
 	} else {
 		None
 	}
