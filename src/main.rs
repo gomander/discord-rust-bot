@@ -50,19 +50,20 @@ impl EventHandler for Handler {
 			);
 		};
 
-		let thread_id = get_thread_id(
+		if let Some(thread_id) = get_thread_id(
 			&msg.channel_id.to_string(),
 			&self.cache,
 			&self.database,
 			&self.reqwest,
 			self.debug,
 		)
-		.await;
-
+		.await
+		{
 		if should_store(&msg, &current_user) {
 			if self.debug {
 				println!("Adding message to thread");
 			};
+
 			openai::add_message_to_thread(
 				&create_thread_message(&msg, self.debug).await,
 				&thread_id,
@@ -75,14 +76,19 @@ impl EventHandler for Handler {
 			if self.debug {
 				println!("Generating response");
 			};
+
 			msg
 				.channel_id
 				.broadcast_typing(&context.http)
 				.await
-				.unwrap();
+					.unwrap_or_default();
 
-			let response = get_response(&msg, &thread_id, &self.reqwest).await;
+				if let Some(response) = get_response(&msg, &thread_id, &self.reqwest, self.debug).await {
 			discord::send_message(&response, &msg.channel_id, &context).await;
+				};
+			};
+		} else {
+			println!("Error getting thread ID");
 		};
 	}
 
@@ -97,23 +103,22 @@ async fn get_thread_id(
 	database: &Postgrest,
 	reqwest: &ReqwestClient,
 	debug: bool,
-) -> String {
+) -> Option<String> {
 	let cache_guard = cache.lock().await;
 
 	if let Some(thread_id) = cache_guard.get(channel_id) {
 		if debug {
 			println!("Using cached thread ID: {thread_id}");
 		};
-		thread_id.clone()
+		Some(thread_id.clone())
 	} else {
 		drop(cache_guard);
-		let thread_id = database::get_thread_id_for_channel(channel_id, database).await;
-		let thread_id = match thread_id {
+		if let Some(thread_id) = match database::get_thread_id_for_channel(channel_id, database).await {
 			Some(id) => {
 				if debug {
 					println!("Using thread ID from database: {id}");
 				};
-				id
+				Some(id)
 			}
 			None => {
 				if debug {
@@ -121,10 +126,13 @@ async fn get_thread_id(
 				};
 				create_thread(channel_id, database, &reqwest).await
 			}
-		};
+		} {
 		let mut cache_guard = cache.lock().await;
 		cache_guard.insert(channel_id.to_string(), thread_id.clone());
-		thread_id
+			Some(thread_id)
+		} else {
+			None
+		}
 	}
 }
 
@@ -177,14 +185,28 @@ fn should_reply(msg: &Message, current_user: &User) -> bool {
 	!is_bot && (contains_my_name || mentions_me || replies_to_me || is_dm)
 }
 
-async fn create_thread(channel_id: &str, database: &Postgrest, reqwest: &ReqwestClient) -> String {
-	let thread_id = openai::create_thread(&reqwest).await;
+async fn create_thread(
+	channel_id: &str,
+	database: &Postgrest,
+	reqwest: &ReqwestClient,
+) -> Option<String> {
+	if let Some(thread_id) = openai::create_thread(&reqwest).await {
 	database::set_thread(&thread_id, channel_id, database).await;
-	thread_id
+		Some(thread_id)
+	} else {
+		None
+	}
 }
 
-async fn get_response(msg: &Message, thread_id: &str, reqwest: &ReqwestClient) -> String {
-	let run_id = openai::create_run(
+const TERMINAL_STATUSES: [&str; 5] = ["completed", "expired", "failed", "cancelled", "incomplete"];
+
+async fn get_response(
+	msg: &Message,
+	thread_id: &str,
+	reqwest: &ReqwestClient,
+	debug: bool,
+) -> Option<String> {
+	if let Some(run_id) = openai::create_run(
 		&format!(
 			"The most recent message was sent by {} (ID: {})",
 			discord::get_user_name(&msg.author),
@@ -193,19 +215,27 @@ async fn get_response(msg: &Message, thread_id: &str, reqwest: &ReqwestClient) -
 		thread_id,
 		&reqwest,
 	)
-	.await;
-
-	let terminal_statuses = ["completed", "expired", "failed", "cancelled", "incomplete"];
-
-	for i in 0..10 {
+	.await
+	{
+		for _ in 0..10 {
+			std::thread::sleep(std::time::Duration::from_secs(4));
 		let status = openai::check_run_status(&run_id, thread_id, &reqwest).await;
-		if terminal_statuses.contains(&status.as_str()) {
-			break;
-		};
-		std::thread::sleep(std::time::Duration::from_secs(i + 3));
+			if TERMINAL_STATUSES.contains(&status.as_str()) {
+				if &status == "completed" {
+					return openai::get_thread_run_result(&run_id, thread_id, &reqwest).await;
+				} else {
+					if debug {
+						println!("Run failed with status: {status}");
+					};
+					return None;
+				};
+			}
 	}
 
 	openai::get_thread_run_result(&run_id, thread_id, &reqwest).await
+	} else {
+		None
+	}
 }
 
 fn verify_env_vars() {

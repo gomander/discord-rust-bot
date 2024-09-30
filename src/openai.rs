@@ -45,7 +45,7 @@ pub fn verify_env_vars() {
 	var("OPENAI_ASSISTANT_ID").expect("OPENAI_ASSISTANT_ID must be set");
 }
 
-pub async fn create_thread(client: &Client) -> String {
+pub async fn create_thread(client: &Client) -> Option<String> {
 	let result = client
 		.post(format!("{OPENAI_API}/threads"))
 		.header("Authorization", get_auth_header())
@@ -54,20 +54,16 @@ pub async fn create_thread(client: &Client) -> String {
 		.await;
 
 	match result {
-		Ok(response) => {
-			let body = response.json::<CreateThreadResponse>().await;
-
-			match body {
-				Ok(json) => json.id,
-				Err(e) => {
-					println!("Error creating thread: {e:?}");
-					"error".to_string()
-				}
+		Ok(response) => match response.json::<CreateThreadResponse>().await {
+			Ok(json) => Some(json.id),
+			Err(e) => {
+				println!("Error creating thread: {e:#?}");
+				None
 			}
-		}
+		},
 		Err(e) => {
-			println!("Error creating thread: {e:?}");
-			"error".to_string()
+			println!("Error creating thread: {e:#?}");
+			None
 		}
 	}
 }
@@ -85,11 +81,11 @@ pub async fn add_message_to_thread(message: &str, thread_id: &str, client: &Clie
 		.await;
 
 	if let Err(e) = result {
-		println!("Error adding message to thread: {:?}", e);
+		println!("Error adding message to thread: {e:#?}");
 	};
 }
 
-pub async fn create_run(instructions: &str, thread_id: &str, client: &Client) -> String {
+pub async fn create_run(instructions: &str, thread_id: &str, client: &Client) -> Option<String> {
 	let result = client
 		.post(format!("{OPENAI_API}/threads/{thread_id}/runs"))
 		.header("Authorization", get_auth_header())
@@ -102,20 +98,16 @@ pub async fn create_run(instructions: &str, thread_id: &str, client: &Client) ->
 		.await;
 
 	match result {
-		Ok(response) => {
-			let body = response.json::<CreateThreadRunResponse>().await;
-
-			match body {
-				Ok(json) => json.id,
-				Err(e) => {
-					println!("Error creating run: {e:?}");
-					"error".to_string()
-				}
+		Ok(response) => match response.json::<CreateThreadRunResponse>().await {
+			Ok(json) => Some(json.id),
+			Err(e) => {
+				println!("Error creating run: {e:#?}");
+				None
 			}
-		}
+		},
 		Err(e) => {
-			println!("Error creating run: {e:?}");
-			"error".to_string()
+			println!("Error creating run: {e:#?}");
+			None
 		}
 	}
 }
@@ -129,17 +121,13 @@ pub async fn check_run_status(run_id: &str, thread_id: &str, client: &Client) ->
 		.await;
 
 	match result {
-		Ok(response) => {
-			let body = response.json::<GetThreadRunResponse>().await;
-
-			match body {
-				Ok(json) => json.status,
-				Err(e) => {
-					println!("Error checking run status: {e:#?}");
-					"failed".to_string()
-				}
+		Ok(response) => match response.json::<GetThreadRunResponse>().await {
+			Ok(thread_run) => thread_run.status,
+			Err(e) => {
+				println!("Error checking run status: {e:#?}");
+				"failed".to_string()
 			}
-		}
+		},
 		Err(e) => {
 			println!("Error checking run status: {e:#?}");
 			"failed".to_string()
@@ -147,7 +135,11 @@ pub async fn check_run_status(run_id: &str, thread_id: &str, client: &Client) ->
 	}
 }
 
-pub async fn get_thread_run_result(run_id: &str, thread_id: &str, client: &Client) -> String {
+pub async fn get_thread_run_result(
+	run_id: &str,
+	thread_id: &str,
+	client: &Client,
+) -> Option<String> {
 	let response = client
 		.get(format!(
 			"{OPENAI_API}/threads/{thread_id}/messages?run_id={run_id}"
@@ -158,26 +150,22 @@ pub async fn get_thread_run_result(run_id: &str, thread_id: &str, client: &Clien
 		.await;
 
 	match response {
-		Ok(response) => {
-			let body = response.json::<GetThreadMessagesResponse>().await;
-
-			match body {
-				Ok(body) => {
-					if body.data.is_empty() || body.data[0].content.is_empty() {
-						return "No response from OpenAI".to_string();
-					};
-
-					body.data[0].content[0].text.value.to_string()
-				}
-				Err(e) => {
-					println!("Error getting thread run result: {e:#?}");
-					"error".to_string()
+		Ok(response) => match response.json::<GetThreadMessagesResponse>().await {
+			Ok(body) => {
+				if body.data.len() > 0 && body.data[0].content.len() > 0 {
+					Some(body.data[0].content[0].text.value.clone())
+				} else {
+					None
 				}
 			}
-		}
+			Err(e) => {
+				println!("Error getting thread run result: {e:#?}");
+				None
+			}
+		},
 		Err(e) => {
 			println!("Error getting thread run result: {e:#?}");
-			"error".to_string()
+			None
 		}
 	}
 }
