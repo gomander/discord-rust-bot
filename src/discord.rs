@@ -52,11 +52,10 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 
 	let mut chunks = Vec::new();
 	let mut start = 0;
-	let mut end;
 	let mut in_code_block = false;
 
 	while start < message.len() {
-		end = (start + max_length).min(message.len());
+		let mut end = (start + max_length).min(message.len());
 
 		let substr = &message[start..end];
 
@@ -82,14 +81,9 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 						start + backticks_pos
 					} else {
 						// Code block is longer than max_length, so we need to find a place to break in the code block
-						if let Some(newline_pos) = substr.rfind('\n') {
-							start + newline_pos + 1
-						} else if let Some(semi_pos) = substr.rfind(';') {
-							start + semi_pos + 1
-						} else if let Some(space_pos) = substr.rfind(' ') {
-							start + space_pos + 1
-						} else if let Some(comma_pos) = substr.rfind(',') {
-							start + comma_pos + 1
+						let elements = ["\n", ";", " ", ","];
+						if let Some((pos, index)) = find_last_pos_of_first(substr, &elements) {
+							start + pos + elements[index].len()
 						} else {
 							// This chunk will just be "```" because we can't find a good place to break
 							start + backticks_pos + 3
@@ -109,17 +103,14 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 						// I don't imagine there are many inline code blocks that are longer than 2000 characters
 						start + backtick_pos + 1
 					}
-				} else if let Some(newline_pos) = substr.rfind('\n') {
-					start + newline_pos + 1
-				} else if let Some(semi_pos) = substr.rfind(';') {
-					start + semi_pos + 1
-				} else if let Some(space_pos) = substr.rfind(' ') {
-					start + space_pos + 1
-				} else if let Some(comma_pos) = substr.rfind(',') {
-					start + comma_pos + 1
 				} else {
-					// This code block probably contains a long base64 string or something with no good place to break
-					end
+					let elements = ["\n", ";", " ", ","];
+					if let Some((pos, index)) = find_last_pos_of_first(substr, &elements) {
+						start + pos + elements[index].len()
+					} else {
+						// This is probably some really long base64 string or something with no good place to break
+						end
+					}
 				}
 			} else {
 				// The end is not in a code block
@@ -141,17 +132,10 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 						end
 					}
 				} else {
+					let elements = ["\n", ". ", " ", ".", ","];
 					// If there are any code blocks in the chunk, they are somewhere in the middle and can be ignored
-					if let Some(pos) = substr.rfind('\n') {
-						start + pos + 1
-					} else if let Some(pos) = substr.rfind(". ") {
-						start + pos + 2
-					} else if let Some(pos) = substr.rfind(' ') {
-						start + pos + 1
-					} else if let Some(pos) = substr.rfind('.') {
-						start + pos + 1
-					} else if let Some(pos) = substr.rfind(',') {
-						start + pos + 1
+					if let Some((pos, index)) = find_last_pos_of_first(substr, &elements) {
+						start + pos + elements[index].len()
 					} else {
 						// This is probably some really long base64 string or something with no good place to break
 						end
@@ -165,4 +149,13 @@ pub fn split_message(message: &str, max_length: usize) -> Vec<&str> {
 	}
 
 	chunks
+}
+
+fn find_last_pos_of_first(string: &str, elements: &[&str]) -> Option<(usize, usize)> {
+	for index in 0..elements.len() {
+		if let Some(pos) = string.rfind(elements[index]) {
+			return Some((pos, index));
+		};
+	}
+	None
 }
